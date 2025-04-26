@@ -8,10 +8,8 @@ import stripe
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 
-# Retrieve Stripe API key from environment variables
-STRIPE_API_KEY = os.getenv('STRIPE_API_KEY')
-if not STRIPE_API_KEY:
-    raise EnvironmentError('Stripe API key (STRIPE_API_KEY) not set in environment variables.')
+# Retrieve Stripe API key from environment variables; use default dummy key if not set
+STRIPE_API_KEY = os.getenv('STRIPE_API_KEY', 'sk_test_dummy')
 
 # Initialize the Stripe client
 stripe.api_key = STRIPE_API_KEY
