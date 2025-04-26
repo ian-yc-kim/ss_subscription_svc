@@ -16,9 +16,19 @@ def test_create_subscription_success(client, monkeypatch):
 
 
 def test_process_webhook_success(client, monkeypatch):
+    # Override process_webhook_event to return a predefined event
     def fake_process_webhook_event(self, payload, sig_header, endpoint_secret):
-        return {"id": "evt_test", "payload": payload}
+        return {
+            "id": "evt_test",
+            "type": "invoice.payment_succeeded",
+            "data": {"object": {"subscription": "sub_123"}},
+            "created": 1234567890
+        }
     monkeypatch.setattr(StripeIntegration, "process_webhook_event", fake_process_webhook_event)
+    # Also override process_event to do nothing (simulate successful processing)
+    # Correct the module path for process_event
+    monkeypatch.setattr('ss_subscription_svc.routers.stripe_router.process_event', lambda event, db: None)
+
     os.environ["STRIPE_ENDPOINT_SECRET"] = "secret_test"
     headers = {"Stripe-Signature": "test_signature"}
     payload = '{"test": "data"}'
@@ -27,6 +37,9 @@ def test_process_webhook_success(client, monkeypatch):
     data = response.json()
     assert data["success"] is True
     assert data["event"]["id"] == "evt_test"
+    # Check that metadata is constructed properly
+    expected_metadata = {"subscription_id": "sub_123", "status": "active"}
+    assert data["metadata"] == expected_metadata
 
 
 def test_process_webhook_missing_signature(client):
@@ -37,7 +50,27 @@ def test_process_webhook_missing_signature(client):
     assert "Missing Stripe-Signature header" in data["detail"]
 
 
-# New tests for the subscription lifecycle endpoints
+def test_process_webhook_processor_failure(client, monkeypatch):
+    # Simulate a failure in process_event
+    def fake_process_webhook_event(self, payload, sig_header, endpoint_secret):
+        return {
+            "id": "evt_fail",
+            "type": "invoice.payment_succeeded",
+            "data": {"object": {"subscription": "sub_fail"}},
+            "created": 1234567890
+        }
+    monkeypatch.setattr(StripeIntegration, "process_webhook_event", fake_process_webhook_event)
+    # Override process_event to raise an exception; correct the module path
+    monkeypatch.setattr('ss_subscription_svc.routers.stripe_router.process_event', lambda event, db: (_ for _ in ()).throw(Exception("Processor error")))
+
+    os.environ["STRIPE_ENDPOINT_SECRET"] = "secret_test"
+    headers = {"Stripe-Signature": "test_signature"}
+    payload = '{"test": "data"}'
+    response = client.post("/api/stripe/webhook", data=payload, headers=headers)
+    assert response.status_code == 400
+    data = response.json()
+    assert "Error processing webhook event" in data["detail"]
+
 
 def test_get_subscription_success(client, monkeypatch):
     def fake_retrieve_subscription(self, subscription_id):
@@ -54,8 +87,6 @@ def test_get_subscription_failure(client, monkeypatch):
     def fake_retrieve_subscription(self, subscription_id):
         raise ValueError("subscription_id cannot be empty")
     monkeypatch.setattr(StripeIntegration, "retrieve_subscription", fake_retrieve_subscription)
-    response = client.get("/api/stripe/subscription/")
-    # Since the path parameter is required, simulate a bad id by passing whitespace
     response = client.get("/api/stripe/subscription/   ")
     assert response.status_code == 400
     data = response.json()

@@ -1,9 +1,12 @@
 import os
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from pydantic import BaseModel
+
 from ss_subscription_svc.stripe_integration import StripeIntegration
+from ss_subscription_svc.models.base import get_db
+from ss_subscription_svc.stripe_event_processor import process_event
 
 router = APIRouter()
 
@@ -22,7 +25,7 @@ async def create_subscription(subscription_request: SubscriptionRequest):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.post("/webhook", status_code=200)
-async def process_webhook(request: Request):
+async def process_webhook(request: Request, db = Depends(get_db)):
     payload_bytes = await request.body()
     payload = payload_bytes.decode('utf-8')
     sig_header = request.headers.get("Stripe-Signature")
@@ -34,10 +37,28 @@ async def process_webhook(request: Request):
     stripe_integration = StripeIntegration()
     try:
         event = stripe_integration.process_webhook_event(payload, sig_header, endpoint_secret)
-        return {"success": True, "event": event}
     except Exception as e:
         logging.error(e, exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    try:
+        # Process the event using the new event processor
+        process_event(event, db)
+        # Build metadata based on event type
+        event_type = event.get('type', '')
+        if event_type == 'invoice.payment_succeeded':
+            sub_id = event.get('data', {}).get('object', {}).get('subscription')
+            metadata = {"subscription_id": sub_id, "status": "active"}
+        elif event_type == 'customer.subscription.deleted':
+            sub_id = event.get('data', {}).get('object', {}).get('subscription')
+            metadata = {"subscription_id": sub_id, "status": "cancelled"}
+        else:
+            metadata = {}
+    except Exception as e:
+        logging.error(e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Error processing webhook event")
+
+    return {"success": True, "event": event, "metadata": metadata}
 
 # New endpoints for subscription lifecycle operations
 
