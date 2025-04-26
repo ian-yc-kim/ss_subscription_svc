@@ -97,6 +97,29 @@ class StripeIntegration:
                 raise e
         raise Exception('Failed to cancel subscription after retries.')
 
+    def retrieve_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        """
+        Retrieve subscription details from Stripe using the provided subscription_id.
+
+        :param subscription_id: The Stripe subscription ID. Must be a non-empty string.
+        :return: A dictionary containing subscription details as returned by Stripe.
+        :raises ValueError: If subscription_id is empty or only whitespace.
+        :raises stripe.error.AuthenticationError: For authentication related errors.
+        :raises stripe.error.APIConnectionError: For connectivity related errors.
+        :raises Exception: For any other exceptions encountered during retrieval.
+        """
+        if not subscription_id or not subscription_id.strip():
+            raise ValueError("subscription_id cannot be empty")
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            return subscription
+        except (stripe.error.AuthenticationError, stripe.error.APIConnectionError) as e:
+            logging.error(e, exc_info=True)
+            raise
+        except Exception as e:
+            logging.error(e, exc_info=True)
+            raise
+
     def process_webhook_event(self, payload: str, sig_header: str, endpoint_secret: str) -> Dict[str, Any]:
         """
         Process and validate a webhook event from Stripe.

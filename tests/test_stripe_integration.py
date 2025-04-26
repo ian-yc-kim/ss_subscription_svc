@@ -109,3 +109,31 @@ def test_process_webhook_event_invalid_signature(monkeypatch, stripe_integration
     with pytest.raises(Exception) as excinfo:
         stripe_integration.process_webhook_event(payload, sig_header, endpoint_secret)
     assert 'Invalid signature' in str(excinfo.value)
+
+
+def test_retrieve_subscription_success(monkeypatch, stripe_integration):
+    fake_subscription = {"id": "sub_success", "status": "active"}
+
+    class FakeRetrieve:
+        @staticmethod
+        def retrieve(subscription_id):
+            return fake_subscription
+    
+    monkeypatch.setattr(stripe, 'Subscription', type('FakeSubscription', (), {'retrieve': FakeRetrieve.retrieve}))
+    result = stripe_integration.retrieve_subscription("sub_success")
+    assert result == fake_subscription
+
+
+def test_retrieve_subscription_invalid_input(stripe_integration):
+    with pytest.raises(ValueError) as excinfo:
+        stripe_integration.retrieve_subscription("   ")
+    assert "subscription_id cannot be empty" in str(excinfo.value)
+
+
+def test_retrieve_subscription_stripe_error(monkeypatch, stripe_integration):
+    def fake_retrieve(subscription_id):
+        raise stripe.error.AuthenticationError("Invalid API key", None)
+
+    monkeypatch.setattr(stripe, 'Subscription', type('FakeSubscription', (), {'retrieve': fake_retrieve}))
+    with pytest.raises(stripe.error.AuthenticationError):
+        stripe_integration.retrieve_subscription("sub_error")
