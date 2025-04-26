@@ -38,3 +38,49 @@ async def process_webhook(request: Request):
     except Exception as e:
         logging.error(e, exc_info=True)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+# New endpoints for subscription lifecycle operations
+
+class SubscriptionUpdateRequest(BaseModel):
+    # Accepts arbitrary update data, for example metadata updates
+    metadata: dict
+
+@router.get("/subscription/{subscription_id}", status_code=200)
+async def get_subscription(subscription_id: str):
+    stripe_integration = StripeIntegration()
+    try:
+        subscription = stripe_integration.retrieve_subscription(subscription_id)
+        return {"success": True, "subscription": subscription}
+    except ValueError as ve:
+        logging.error(ve, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logging.error(e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.put("/subscription/{subscription_id}", status_code=200)
+async def update_subscription(subscription_id: str, update_request: SubscriptionUpdateRequest):
+    stripe_integration = StripeIntegration()
+    try:
+        # Use the update data from the request
+        updated_subscription = stripe_integration.update_subscription(subscription_id, update_request.dict(exclude_unset=True))
+        return {"success": True, "subscription": updated_subscription}
+    except ValueError as ve:
+        logging.error(ve, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logging.error(e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.delete("/subscription/{subscription_id}", status_code=200)
+async def cancel_subscription(subscription_id: str):
+    stripe_integration = StripeIntegration()
+    try:
+        canceled_subscription = stripe_integration.cancel_subscription(subscription_id)
+        return {"success": True, "subscription": canceled_subscription}
+    except ValueError as ve:
+        logging.error(ve, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except Exception as e:
+        logging.error(e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
